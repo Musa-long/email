@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: credscheck
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    disk:
+      name: creds-data
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - key: DB_PATH
+        value: /var/data/creds.db
+      - key: DATA_DIR
+        value: /var/data
+      - key: BASIC_USER
+        sync: false
+      - key: BASIC_PASS
+        sync: false
