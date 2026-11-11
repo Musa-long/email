@@ -1,0 +1,107 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>CredsCheck</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--line:#262b36;--fg:#e6e9ef;--dim:#8b93a3;
+--ok:#3fb950;--bad:#f85149;--acc:#4c8dff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
+font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:28px 20px 60px}
+h1{font-size:20px;margin:0 0 4px}.sub{color:var(--dim);margin-bottom:22px;font-size:13px}
+.tabs{display:flex;gap:6px;margin-bottom:16px}
+.tab{padding:8px 14px;border:1px solid var(--line);border-radius:8px;cursor:pointer;
+background:var(--panel);color:var(--dim);font-size:13px}
+.tab.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:26px;text-align:center;
+color:var(--dim);cursor:pointer;margin-bottom:12px;font-size:13px}
+.drop.hot{border-color:var(--acc);color:var(--fg)}
+textarea{width:100%;min-height:120px;background:#0c0e12;color:var(--fg);border:1px solid var(--line);
+border-radius:8px;padding:10px;font:12px/1.5 ui-monospace,Menlo,monospace;resize:vertical}
+button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 18px;
+font-weight:600;cursor:pointer}button:disabled{opacity:.5;cursor:default}
+label{display:flex;gap:8px;align-items:center;color:var(--dim);font-size:13px;margin:10px 0}
+.bar{height:8px;background:#0c0e12;border-radius:99px;overflow:hidden;margin:14px 0 6px}
+.fill{height:100%;width:0;background:var(--acc);transition:width .2s}
+.counts{display:flex;gap:20px;font-size:13px;color:var(--dim)}
+.counts b{color:var(--fg)}.hit b{color:var(--ok)}
+a.dl{display:inline-block;margin-top:12px;color:var(--ok);font-size:13px}
+.stat{color:var(--dim);font-size:12px;margin-bottom:18px}
+.hidden{display:none}
+</style></head><body><div class="wrap">
+<h1>CredsCheck</h1>
+<div class="sub">Local leak corpus checker — pairs or emails, 100k+ per run.</div>
+<div class="stat" id="stat">corpus: …</div>
+
+<div class="tabs">
+  <div class="tab on" data-m="pairs">Check email:pass list</div>
+  <div class="tab" data-m="emails">Find passwords by email</div>
+  <div class="tab" data-m="ingest">Ingest corpus</div>
+</div>
+
+<div class="panel">
+  <div class="drop" id="drop">Drop a .txt file here or click to choose</div>
+  <input type="file" id="file" class="hidden" accept=".txt,.csv">
+  <textarea id="txt" placeholder="or paste here…"></textarea>
+  <label id="lbl-hits"><input type="checkbox" id="onlyhits"> Show only HIT rows in results</label>
+  <button id="go">Run</button>
+
+  <div id="prog" class="hidden">
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <div class="counts">
+      <div>processed <b id="c-done">0</b> / <b id="c-total">0</b></div>
+      <div class="hit">hits <b id="c-hits">0</b></div>
+    </div>
+    <a class="dl hidden" id="dl" href="#">Download results CSV</a>
+  </div>
+</div>
+</div>
+<script>
+let mode="pairs", picked=null;
+const $=id=>document.getElementById(id);
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
+  t.classList.add("on"); mode=t.dataset.m;
+  $("lbl-hits").classList.toggle("hidden", mode!=="pairs");
+  $("prog").classList.add("hidden");
+});
+$("drop").onclick=()=>$("file").click();
+$("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("hot")};
+$("drop").ondragleave=()=>$("drop").classList.remove("hot");
+$("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("hot");
+  picked=e.dataTransfer.files[0];$("drop").textContent=picked.name};
+$("file").onchange=e=>{picked=e.target.files[0];$("drop").textContent=picked.name};
+
+async function refresh(){
+  try{const s=await (await fetch("/api/stats")).json();
+    $("stat").textContent=`corpus: ${s.rows.toLocaleString()} pairs · ${s.distinct_emails.toLocaleString()} distinct emails`;
+  }catch(e){}
+}
+refresh();
+
+$("go").onclick=async()=>{
+  const fd=new FormData();
+  if(picked) fd.append("file", picked);
+  else if($("txt").value.trim()) fd.append("text", $("txt").value);
+  else return alert("provide a file or paste text");
+  if(mode==="pairs") fd.append("only_hits", $("onlyhits").checked);
+  $("go").disabled=true; $("dl").classList.add("hidden");
+  const r=await fetch("/api/"+({pairs:"check/pairs",emails:"check/emails",ingest:"ingest"})[mode],
+                      {method:"POST", body:fd});
+  if(!r.ok){$("go").disabled=false;return alert(await r.text())}
+  const {job,total}=await r.json();
+  $("prog").classList.remove("hidden"); $("c-total").textContent=total.toLocaleString();
+  const es=new EventSource(`/api/job/${job}/stream`);
+  es.addEventListener("progress", e=>{
+    const d=JSON.parse(e.data);
+    $("c-done").textContent=d.done.toLocaleString();
+    $("c-hits").textContent=d.hits.toLocaleString();
+    $("fill").style.width=(100*d.done/Math.max(d.total,1))+"%";
+  });
+  es.addEventListener("done", e=>{
+    es.close(); $("go").disabled=false; refresh();
+    if(mode!=="ingest"){ $("dl").href=`/api/job/${job}/result.csv`;
+      $("dl").classList.remove("hidden"); }
+  });
+};
+</script></body></html>
