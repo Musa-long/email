@@ -1,5 +1,7 @@
-import asyncio, csv, os, time, uuid
+import asyncio, csv, os, sys, time, uuid
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import db
 
 DATA = Path(os.environ.get("DATA_DIR", "/var/data"))
