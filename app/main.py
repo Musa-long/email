@@ -1,5 +1,8 @@
-import asyncio, base64, json, os, secrets
+import asyncio, base64, json, os, secrets, sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse, Response
 import db, ingest, jobs
